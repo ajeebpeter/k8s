@@ -448,3 +448,4 @@ sh deploy/sh/local.sh
 ```
 sh deploy/sh/gke.sh
 ```
+# k8s
