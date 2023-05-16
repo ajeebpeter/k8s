@@ -1,0 +1,321 @@
+Image Build & Push
+
+./gradlew build -x test
+
+AppServer
+-----
+docker image build -t ajeebpeter/eksdemo:appserver -f deploy/app/Dockerfile .
+
+docker push ajeebpeter/eksdemo:appserver
+
+web
+----
+
+docker image build -t ajeebpeter/eksdemo:nginx -f deploy/web/Dockerfile .
+
+docker push ajeebpeter/eksdemo:nginx
+
+
+db
+---
+
+docker image build -t ajeebpeter/eksdemo:postgres9.6 -f deploy/db/Dockerfile .
+
+docker push ajeebpeter/eksdemo:postgres9.6
+
+
+Create configmap for nginx
+-----
+
+kubectl delete configmap nginx-conf 
+kubectl delete configmap server-conf 
+
+kubectl create configmap nginx-conf --from-file=deploy/web/nginx.conf 
+kubectl create configmap server-conf --from-file=deploy/web/server.conf
+
+
+—secrets
+
+mkdir -p secrets
+cd secrets
+kubectl delete -f secret/secret.yaml
+
+
+cat <<EoF > ~/environment/springdemo_k8s/secrets/kustomization.yaml
+namespace: octank
+secretGenerator:
+- name: database-credentials
+  literals:
+  - username=octankwu
+  - password=ajeepp11
+generatorOptions:
+  disableNameSuffixHash: true
+EoF
+
+kubectl kustomize . > secret.yaml
+
+kubectl create -f secret/secret.yaml
+
+
+
+
+Db :- 
+
+kubectl delete -f deploy/db/postgres-config.yaml 
+kubectl create -f deploy/db/postgres-config.yaml 
+
+
+kubectl delete -f deploy/db/service.yaml
+kubectl delete -f deploy/db/statefulset.yaml
+
+--kubectl apply -f deploy/db/statefulset.yaml
+--kubectl apply -f deploy/db/service.yaml
+
+Verify DB :- 
+
+kubectl run --image=postgres:9.6 --restart=Never --rm -it testpod sh
+# psql -U postgres -h sbdemo-postgres-service demodb
+demodb-# select * from users;
+
+redis
+-------
+kubectl delete -f deploy/redis/deployment.yaml
+kubectl delete -f deploy/redis/service.yaml
+
+kubectl apply -f deploy/redis/deployment.yaml
+kubectl apply -f deploy/redis/service.yaml
+
+Spring App
+------
+kubectl delete -f deploy/app/deployment.yaml
+kubectl delete -f deploy/app/service.yaml
+
+kubectl apply -f deploy/app/deployment.yaml
+kubectl apply -f deploy/app/service.yaml
+
+
+
+Testing :- 
+kubectl run --image=centos:6 --restart=Never --rm -it testpod sh
+sh-4.1# curl -i http://sbdemo-appserver-service:8080/login
+
+
+Web
+----
+kubectl delete -f deploy/web/deployment.yaml
+kubectl delete -f deploy/web/service.yaml
+
+kubectl apply -f deploy/web/deployment.yaml
+kubectl apply -f deploy/web/service.yaml
+
+Ingress
+-------
+
+:: Creating OIDC Provider : - 
+
+export eks_cluster=uc-eks-apps
+export ACCOUNT_ID=754158645619
+
+eksctl utils associate-iam-oidc-provider \
+    --region ${AWS_REGION} \
+    --cluster $eks_cluster \
+    --approve
+
+:: Creqating OIDC Policy :-
+
+aws iam create-policy \
+    --policy-name AWSLoadBalancerControllerIAMPolicy \
+    --policy-document https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/main/docs/install/iam_policy.json
+    
+:: Create IAM Role and Service Account :
+
+eksctl create iamserviceaccount \
+  --cluster uc-eks-apps \
+  --namespace kube-system \
+  --name aws-load-balancer-controller \
+  --attach-policy-arn arn:aws:iam::${ACCOUNT_ID}:policy/AWSLoadBalancerControllerIAMPolicy \
+  --override-existing-serviceaccounts \
+  --approve
+  
+:: Install Traget Group Binding CRD : -
+
+kubectl apply -k github.com/aws/eks-charts/stable/aws-load-balancer-controller/crds?ref=master
+
+kubectl get crd
+
+:: Deploy HELM Chart. ::-
+
+helm repo add eks https://aws.github.io/eks-charts
+
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName=$eks_cluster \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller 
+
+kubectl -n kube-system rollout status deployment aws-load-balancer-controller
+
+
+kubectl apply -f deploy/lb/nodeport.yaml
+kubectl apply -f deploy/lb/ingress.yaml
+
+
+ALB (Only for HTTP. Not Wiuth Ingress)
+---
+kubectl delete -f deploy/lb/loadbalancer.yaml
+
+kubectl apply -f deploy/lb/loadbalancer.yaml
+kubectl get svc --watch
+
+:: Metric Server for HPA
+-------------------
+
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.4.1/components.yaml
+
+:: Verify --Look For "reason": "Passed"
+kubectl get apiservice v1beta1.metrics.k8s.io -o json | jq '.status'
+
+
+
+
+PSQL
+-----
+psql "dbname=demodb host=apdbcluster.cluster-cr7nxqakqtei.us-east-2.rds.amazonaws.com user=octankdb password=ajeepp11 port=5432 sslmode=require"
+
+psql -h apdbcluster.cluster-cr7nxqakqtei.us-east-2.rds.amazonaws.com -U octankdb demodb
+
+
+echo "create table users (id integer primary key, login character varying(16) not null, password character varying(16) not null);"| psql -h apdbcluster.cluster-cr7nxqakqtei.us-east-2.rds.amazonaws.com -U octankdb demodb
+echo "create unique index users_ux1 on users(login);" | psql -h apdbcluster.cluster-cr7nxqakqtei.us-east-2.rds.amazonaws.com -U octankdb demodb
+echo "create table todos (id integer primary key, title character varying(16) not null, status integer default 0 not null, dt timestamp default now() not null);" | psql -h apdbcluster.cluster-cr7nxqakqtei.us-east-2.rds.amazonaws.com -U octankdb demodb
+echo "create sequence todo_id_seq;" | psql -h apdbcluster.cluster-cr7nxqakqtei.us-east-2.rds.amazonaws.com -U octankdb demodb
+echo "insert into users values(0, 'admin', '111111');" | psql -h apdbcluster.cluster-cr7nxqakqtei.us-east-2.rds.amazonaws.com -U octankdb demodb
+
+
+Auto Scaling 
+------------
+CA 
+----
+mkdir cluster-autoscaler
+
+cat <<EoF > cluster-autoscaler/k8s-asg-policy.json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Action": [
+                "autoscaling:DescribeAutoScalingGroups",
+                "autoscaling:DescribeAutoScalingInstances",
+                "autoscaling:DescribeLaunchConfigurations",
+                "autoscaling:DescribeTags",
+                "autoscaling:SetDesiredCapacity",
+                "autoscaling:TerminateInstanceInAutoScalingGroup",
+                "ec2:DescribeLaunchTemplateVersions"
+            ],
+            "Resource": "*",
+            "Effect": "Allow"
+        }
+    ]
+}
+EoF
+
+aws iam create-policy   \
+  --policy-name k8s-asg-policy \
+  --policy-document file://~/environment//springdemo_k8s/cluster-autoscaler/k8s-asg-policy.json
+
+
+eksctl create iamserviceaccount \
+    --name cluster-autoscaler \
+    --namespace kube-system \
+    --cluster uc-eks-apps \
+    --attach-policy-arn "arn:aws:iam::${ACCOUNT_ID}:policy/k8s-asg-policy" \
+    --approve \
+    --override-existing-serviceaccounts
+
+
+Deploy the Cluster AutoScaler
+--------
+wget https://www.eksworkshop.com/beginner/080_scaling/deploy_ca.files/cluster-autoscaler-autodiscover.yaml > deploy/loadbalancer/
+kubectl apply -f https://www.eksworkshop.com/beginner/080_scaling/deploy_ca.files/cluster-autoscaler-autodiscover.yaml
+
+:: To prevent CA from removing nodes where its own pod is running, we will add the cluster-autoscaler.kubernetes.io/safe-to-evict annotation to its deployment with the following command
+
+kubectl -n kube-system \
+    annotate deployment.apps/cluster-autoscaler \
+    cluster-autoscaler.kubernetes.io/safe-to-evict="false"
+
+# we need to retrieve the latest docker image available for our EKS version
+export K8S_VERSION=$(kubectl version --short | grep 'Server Version:' | sed 's/[^0-9.]*\([0-9.]*\).*/\1/' | cut -d. -f1,2)
+export AUTOSCALER_VERSION=$(curl -s "https://api.github.com/repos/kubernetes/autoscaler/releases" | grep '"tag_name":' | sed -s 's/.*-\([0-9][0-9\.]*\).*/\1/' | grep -m1 ${K8S_VERSION})
+
+kubectl -n kube-system \
+    set image deployment.apps/cluster-autoscaler \
+    cluster-autoscaler=us.gcr.io/k8s-artifacts-prod/autoscaling/cluster-autoscaler:v${AUTOSCALER_VERSION}
+
+
+kubectl scale --replicas=10 deployment/sbdemo-appserver
+
+kubectl get pods -l app=sbdemo-appserver -o wide --watch
+
+export ASG_NAME=$(aws autoscaling describe-auto-scaling-groups --query "AutoScalingGroups[? Tags[? (Key=='eks:cluster-name') && Value=='uc-eks-apps']].AutoScalingGroupName" --output text)
+aws autoscaling \
+  update-auto-scaling-group \
+  --auto-scaling-group-name ${ASG_NAME} \
+  --min-size 2 \
+  --desired-capacity 2 \
+  --max-size 3
+
+Graffana
+-----------
+# add prometheus Helm repo
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+
+# add grafana Helm repo
+helm repo add grafana https://grafana.github.io/helm-charts
+
+
+# Deploy
+kubectl create namespace prometheus
+
+helm install prometheus prometheus-community/prometheus \
+    --namespace prometheus \
+    --set alertmanager.persistentVolume.storageClass="gp2" \
+    --set server.persistentVolume.storageClass="gp2"
+
+# port forwarding
+kubectl port-forward -n prometheus deploy/prometheus-server 8080:9090
+
+
+Grafana
+--------
+mkdir ${HOME}/environment/grafana
+
+cat << EoF > ${HOME}/environment/grafana/grafana.yaml
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      url: http://prometheus-server.prometheus.svc.cluster.local
+      access: proxy
+      isDefault: true
+EoF
+
+kubectl create namespace grafana
+
+helm install grafana grafana/grafana \
+    --namespace grafana \
+    --set persistence.storageClassName="gp2" \
+    --set persistence.enabled=true \
+    --set adminPassword='EKS!sAWSome' \
+    --values ${HOME}/environment/grafana/grafana.yaml \
+    --set service.type=LoadBalancer
+
+
+export GRAFANA_ELB=$(kubectl get svc -n grafana grafana -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+echo "http://$GRAFANA_ELB"
+
+kubectl get secret --namespace grafana grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+

@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: sbdemo-nginx
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: sbdemo-nginx
@@ -15,7 +15,7 @@ spec:
       containers:
       - name: nginx
 #        image: nginx:latest
-        image: dayan888/springdemo:nginx
+        image: ajeebpeter/eksdemo:nginx
         ports:
         - containerPort: 80
 #        command: [ "/bin/bash" ]

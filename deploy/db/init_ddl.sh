@@ -5,3 +5,11 @@ echo "create unique index users_ux1 on users(login);" | psql -U postgres demodb
 echo "create table todos (id integer primary key, title character varying(16) not null, status integer default 0 not null, dt timestamp default now() not null);" | psql -U postgres demodb
 echo "create sequence todo_id_seq;" | psql -U postgres demodb
 echo "insert into users values(0, 'admin', '111111');" | psql -U postgres demodb
+
+
+Master username
+postgres
+Master password
+QGm04g61GCmVEZMULDZh
+Endpoint
+uc-app1-db.cluster-cb5ht7rt1kxx.us-east-2.rds.amazonaws.com

@@ -3,7 +3,7 @@ kind: Service
 metadata:
   name: sbdemo-nginx-service
 spec:
-  type: ClusterIP
+  type: LoadBalancer
   ports:
    - name: "http-port"
      protocol: "TCP"

@@ -16,7 +16,10 @@ spec:
     spec:
       containers:
        - name: postgres
-         image: dayan888/springdemo:postgres9.6
+         image: ajeebpeter/springbootapp:postgres9.6
+         envFrom:
+          - configMapRef:
+              name: postgres-config-demo
          ports:
           - containerPort: 5432
          volumeMounts:

@@ -1,0 +1,7 @@
+secretGenerator:
+- name: database-credentials
+  literals:
+  - username=postgres
+  - password=QGm04g61GCmVEZMULDZh
+generatorOptions:
+  disableNameSuffixHash: true

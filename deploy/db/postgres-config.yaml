@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config-demo
+  labels:
+    app: sbdemo-appserver-service
+data:
+  POSTGRES_HOST: "jdbc:postgresql://uc-app1-db-instance-1.cb5ht7rt1kxx.us-east-2.rds.amazonaws.com:5432/demodb"
